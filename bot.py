@@ -43,7 +43,7 @@ async def handle_schedule_file(message: types.Message):
         
         # Читаем данные из Excel файла с помощью pandas
         # openpyxl нужен для .xlsx файлов
-        df = pd.read_excel(downloaded_file, engine='openpyxl')
+        df = pd.read_excel(downloaded_file, engine='openpyxl', header=1)
 
         # Простая проверка, что в файле есть нужные колонки
         required_columns = ['ТМ', 'ТТ', 'ПН', 'ВТ', 'СР', 'ЧТ', 'ПТ', 'СБ']
