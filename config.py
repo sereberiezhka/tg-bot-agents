@@ -12,4 +12,4 @@ GOOGLE_CREDS_JSON = "miralko-bot-dfc195fd0788.json"
 GOOGLE_SHEET_NAME = "Отчеты по агентам"
 
 # ID администратора (Директора), который может загружать расписание
-DIRECTOR_ID = 8171756915
+DIRECTOR_ID = 1669140535
