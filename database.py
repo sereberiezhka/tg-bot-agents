@@ -209,15 +209,9 @@ def get_unregistered_agents():
         cursor.execute("SELECT user_id, full_name FROM users WHERE role = 'agent' AND telegram_id IS NULL")
         return cursor.fetchall()
 
-def link_agent_to_telegram_id(user_id, telegram_id, telegram_full_name):
-    """
-    Привязывает telegram_id к существующему в БД агенту (по user_id из базы).
-    ВАЖНО: Мы не меняем full_name агента из Excel на его имя в Telegram.
-    Мы просто добавляем telegram_id к записи, которую нашли по user_id.
-    """
+def link_agent_to_telegram_id(user_id, telegram_id):
     with sqlite3.connect(DATABASE_NAME) as conn:
         cursor = conn.cursor()
-        # Ищем пользователя по user_id, который был выбран на кнопке
         cursor.execute("UPDATE users SET telegram_id = ? WHERE user_id = ?", (telegram_id, user_id))
         conn.commit()
     logging.info(f"Агент (user_id={user_id}) успешно привязан к telegram_id={telegram_id}")
@@ -247,3 +241,18 @@ def get_all_users_for_debug():
         # Выбираем user_id, full_name, role, telegram_id
         cursor.execute("SELECT user_id, full_name, role, telegram_id FROM users")
         return cursor.fetchall()
+    
+def find_unregistered_agent_by_name(full_name):
+    """
+    Ищет агента по полному имени среди тех, у кого нет telegram_id.
+    Возвращает user_id, если найден, иначе None.
+    """
+    with sqlite3.connect(DATABASE_NAME) as conn:
+        cursor = conn.cursor()
+        # strip() и lower() для нечувствительности к регистру и пробелам
+        cursor.execute(
+            "SELECT user_id FROM users WHERE trim(lower(full_name)) = ? AND role = 'agent' AND telegram_id IS NULL",
+            (full_name.strip().lower(),)
+        )
+        result = cursor.fetchone()
+        return result[0] if result else None

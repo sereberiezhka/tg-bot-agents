@@ -62,7 +62,12 @@ async def handle_schedule_file(message: types.Message, bot: Bot):
         affected_agent_ids = save_schedule_from_dataframe(df)
         
         num_agents = len(df['ТМ'].unique())
-        await message.answer(f"✅ Расписание успешно сохранено!\nУникальных агентов: {num_agents}")
+        num_points = len(df['ТТ'].unique()) # <-- Считаем уникальные точки
+        await message.answer(
+            f"✅ Расписание успешно сохранено в базу!\n\n"
+            f"👨‍💼 Уникальных агентов: {num_agents}\n"
+            f"🏢 Уникальных торговых точек: {num_points}"
+            )
 
         # Рассылаем уведомления, если есть кому
         if affected_agent_ids:

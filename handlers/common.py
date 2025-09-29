@@ -1,15 +1,13 @@
-# handlers/common.py
+# handlers/common.py (полностью обновленный)
 from aiogram import Router, F, types
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import InlineKeyboardButton
-from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from config import DIRECTOR_ID
 from database import (
     get_user_by_telegram_id, add_user, get_invite_code, 
-    deactivate_invite_code, get_unregistered_agents, link_agent_to_telegram_id
+    deactivate_invite_code, find_unregistered_agent_by_name, link_agent_to_telegram_id
 )
 from ui.keyboards import director_menu_keyboard, agent_menu_keyboard
 
@@ -17,7 +15,7 @@ router = Router()
 
 class Registration(StatesGroup):
     waiting_for_code = State()
-    choosing_profile = State()
+    waiting_for_fio = State() # Новое состояние для ожидания ФИО
 
 @router.message(Command("start"))
 async def cmd_start(message: types.Message, state: FSMContext):
@@ -48,36 +46,37 @@ async def process_invite_code(message: types.Message, state: FSMContext):
         await message.answer("Неверный или уже использованный инвайт-код. Попробуйте еще раз.")
         return
 
-    unregistered_agents = get_unregistered_agents()
-    if not unregistered_agents:
-        await message.answer("Все агенты из расписания уже зарегистрированы. Обратитесь к Директору.")
-        await state.clear()
-        return
-
-    await state.update_data(
-        telegram_id=message.from_user.id,
-        telegram_name=message.from_user.full_name,
-        code=code
+    # Сохраняем код, он нам еще понадобится
+    await state.update_data(code=code)
+    await message.answer(
+        "Код принят! ✅\n\n"
+        "Теперь, пожалуйста, введите свои <b>Фамилию Имя Отчество</b>.\n"
+        "<i>(Важно: введите их точно так же, как они указаны в рабочем расписании)</i>"
     )
+    await state.set_state(Registration.waiting_for_fio)
 
-    builder = InlineKeyboardBuilder()
-    for user_id, full_name in unregistered_agents:
-        builder.add(InlineKeyboardButton(text=full_name, callback_data=f"link_profile_{user_id}"))
-    builder.adjust(1)
+@router.message(Registration.waiting_for_fio)
+async def process_fio(message: types.Message, state: FSMContext):
+    fio = message.text.strip()
+    
+    # Ищем агента в БД по введенному ФИО
+    agent_user_id = find_unregistered_agent_by_name(fio)
+    
+    if agent_user_id:
+        # Агент найден! Завершаем регистрацию.
+        telegram_id = message.from_user.id
+        link_agent_to_telegram_id(agent_user_id, telegram_id)
+        
+        # Деактивируем инвайт-код
+        state_data = await state.get_data()
+        deactivate_invite_code(state_data.get('code'))
 
-    await message.answer("Отлично! Теперь выберите свое имя из списка:", reply_markup=builder.as_markup())
-    await state.set_state(Registration.choosing_profile)
-
-@router.callback_query(F.data.startswith("link_profile_"), Registration.choosing_profile)
-async def link_profile_callback(callback: types.CallbackQuery, state: FSMContext):
-    user_db_id = int(callback.data.split("_")[2])
-    state_data = await state.get_data()
-    telegram_id = state_data.get('telegram_id')
-    code = state_data.get('code')
-
-    link_agent_to_telegram_id(user_db_id, telegram_id)
-    deactivate_invite_code(code)
-
-    await callback.message.edit_text("✅ **Регистрация успешно завершена!**")
-    await callback.message.answer("Теперь вы можете пользоваться меню агента.", reply_markup=agent_menu_keyboard())
-    await state.clear()
+        await message.answer("✅ **Регистрация успешно завершена!**\n\nТеперь вы можете пользоваться меню агента.", reply_markup=agent_menu_keyboard())
+        await state.clear()
+    else:
+        # Агент не найден
+        await message.answer(
+            "❌ Агент с таким ФИО не найден среди незарегистрированных.\n\n"
+            "Пожалуйста, проверьте правильность написания и попробуйте еще раз. "
+            "Обратите внимание на заглавные буквы и пробелы."
+        )
