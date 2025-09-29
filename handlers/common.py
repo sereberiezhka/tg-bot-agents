@@ -73,10 +73,9 @@ async def link_profile_callback(callback: types.CallbackQuery, state: FSMContext
     user_db_id = int(callback.data.split("_")[2])
     state_data = await state.get_data()
     telegram_id = state_data.get('telegram_id')
-    telegram_name = state_data.get('telegram_name')
     code = state_data.get('code')
 
-    link_agent_to_telegram_id(user_db_id, telegram_id, telegram_name)
+    link_agent_to_telegram_id(user_db_id, telegram_id)
     deactivate_invite_code(code)
 
     await callback.message.edit_text("✅ **Регистрация успешно завершена!**")
