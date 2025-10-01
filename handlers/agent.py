@@ -4,6 +4,9 @@ import pandas as pd
 import json
 import asyncio
 import logging
+import pytz 
+
+from datetime import datetime
 from aiogram import Router, F, types, Bot
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -139,12 +142,16 @@ async def handle_location(message: types.Message, state: FSMContext, bot: Bot):
     )
 
     await message.answer(f"✅ Отчет по точке <b>{point_name}</b> принят! Спасибо!", reply_markup=types.ReplyKeyboardRemove())
+    user_timezone = pytz.timezone('Asia/Almaty') 
+
+    # Конвертируем UTC время сообщения в твой часовой пояс
+    local_time = message.date.astimezone(user_timezone)
 
     caption = (
         f"📸 **Новый фотоотчет**\n\n"
         f"👤 **Агент:** {agent_full_name}\n"
         f"📍 **Торговая точка:** {point_name}\n"
-        f"⏰ **Время:** {message.date.strftime('%Y-%m-%d %H:%M:%S')}"
+        f"⏰ **Время:** {local_time.strftime('%Y-%m-%d %H:%M:%S')} ({user_timezone.zone})"
     )
     
     try:
