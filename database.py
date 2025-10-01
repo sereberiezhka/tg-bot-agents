@@ -156,9 +156,16 @@ def deactivate_invite_code(code):
         conn.commit()
 
 def get_agent_schedule_for_day(agent_user_id, day_of_week):
+    """Возвращает список (ID точки, Имя точки, Район) для агента на день."""
     with sqlite3.connect(DATABASE_NAME) as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT tp.name, tp.parent_object FROM schedules s JOIN trade_points tp ON s.point_id = tp.point_id WHERE s.user_id = ? AND s.day_of_week = ? ORDER BY tp.name", (agent_user_id, day_of_week))
+        cursor.execute("""
+            SELECT tp.point_id, tp.name, tp.parent_object
+            FROM schedules s
+            JOIN trade_points tp ON s.point_id = tp.point_id
+            WHERE s.user_id = ? AND s.day_of_week = ?
+            ORDER BY tp.name
+        """, (agent_user_id, day_of_week))
         return cursor.fetchall()
 
 def get_agent_by_telegram_id(telegram_id):
@@ -191,3 +198,15 @@ def get_point_id_by_name(point_name):
         cursor.execute("SELECT point_id FROM trade_points WHERE name = ?", (point_name,))
         result = cursor.fetchone()
         return result[0] if result else None
+
+def get_visited_points_today(user_id):
+    """Возвращает множество ID точек, по которым агент отчитался сегодня."""
+    with sqlite3.connect(DATABASE_NAME) as conn:
+        cursor = conn.cursor()
+        # date('now', 'localtime') - получает текущую дату по локальному времени сервера
+        cursor.execute(
+            "SELECT DISTINCT point_id FROM reports WHERE user_id = ? AND date(report_time, 'localtime') = date('now', 'localtime')",
+            (user_id,)
+        )
+        # Возвращаем set для быстрой проверки (point_id in visited_ids)
+        return {row[0] for row in cursor.fetchall()}
