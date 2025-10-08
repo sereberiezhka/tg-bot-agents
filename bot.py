@@ -6,7 +6,7 @@ from aiogram.client.default import DefaultBotProperties
 
 from config import BOT_TOKEN
 from database import init_db
-from handlers import common, director, agent
+from handlers import common, director, agent, supervisor
 from services.scheduler import setup_scheduler
 
 async def set_main_menu(bot: Bot):
@@ -25,6 +25,7 @@ async def main():
     dp.include_router(common.router)
     dp.include_router(director.router)
     dp.include_router(agent.router)
+    dp.include_router(supervisor.router)
 
     # Устанавливаем меню команд при запуске
     await set_main_menu(bot)

@@ -3,7 +3,7 @@ import logging
 import pandas as pd
 
 from aiogram import Router, F, types, Bot
-from ui.keyboards import back_to_main_menu_keyboard
+from ui.keyboards import back_to_main_menu_keyboard, invite_options_keyboard
 from config import DIRECTOR_ID
 from database import create_invite_code, save_schedule_from_dataframe
 
@@ -13,18 +13,27 @@ router.message.filter(F.from_user.id == DIRECTOR_ID)
 router.callback_query.filter(F.from_user.id == DIRECTOR_ID)
 
 # --- НОВЫЕ ХЭНДЛЕРЫ ДЛЯ INLINE-КНОПОК ---
-
 @router.callback_query(F.data == "director_create_invite")
+async def invite_options_handler(callback: types.CallbackQuery):
+    # Теперь не создаем код сразу, а даем выбор
+    await callback.message.edit_text("Выберите, для какой роли вы хотите создать инвайт-код:", reply_markup=invite_options_keyboard())
+
+@router.callback_query(F.data.startswith("create_invite_"))
 async def create_invite_handler(callback: types.CallbackQuery):
-    new_code = create_invite_code(role='agent')
-    await callback.message.answer(
-        f"Создан новый инвайт-код для Агента:\n\n"
-        f"`{new_code}`\n\n"
+    role = callback.data.split("_")[2] # 'agent' или 'supervisor'
+    new_code = create_invite_code(role=role)
+    await callback.message.edit_text(
+        f"Создан новый инвайт-код для роли <b>{role.capitalize()}</b>:\n\n`{new_code}`\n\n"
         f"Отправьте этот код новому сотруднику. Он действует один раз.",
         parse_mode="Markdown",
-        reply_markup=back_to_main_menu_keyboard('director') 
+        reply_markup=back_to_main_menu_keyboard('director')
     )
-    await callback.answer()
+
+@router.callback_query(F.data == "director_manage_staff")
+async def manage_staff_handler(callback: types.CallbackQuery):
+    # Здесь будет логика назначения агентов
+    await callback.answer("Функция назначения агентов в разработке.", show_alert=True)
+
 
 @router.callback_query(F.data == "director_upload_schedule")
 async def ask_for_schedule_file(callback: types.CallbackQuery):

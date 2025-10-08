@@ -37,8 +37,41 @@ def add_user(telegram_id, full_name, role, supervisor_id=None):
             conn.commit(); return cursor.lastrowid
         except sqlite3.IntegrityError: return None
 
+# --- НОВЫЕ ФУНКЦИИ ДЛЯ УПРАВЛЕНИЯ ПЕРСОНАЛОМ ---
+
+def get_all_supervisors():
+    """Возвращает список всех супервайзеров (user_id, full_name)."""
+    with sqlite3.connect(DATABASE_NAME) as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT user_id, full_name FROM users WHERE role = 'supervisor'")
+        return cursor.fetchall()
+
+def get_agents_without_supervisor():
+    """Возвращает список агентов, у которых нет супервайзера."""
+    with sqlite3.connect(DATABASE_NAME) as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT user_id, full_name FROM users WHERE role = 'agent' AND supervisor_id IS NULL")
+        return cursor.fetchall()
+
+def assign_agents_to_supervisor(supervisor_id, agent_ids):
+    """Присваивает список агентов супервайзеру."""
+    with sqlite3.connect(DATABASE_NAME) as conn:
+        cursor = conn.cursor()
+        # agent_ids - это список, например [1, 2, 5]
+        # Для каждого id в списке выполняем UPDATE
+        cursor.executemany("UPDATE users SET supervisor_id = ? WHERE user_id = ?", [(supervisor_id, agent_id) for agent_id in agent_ids])
+        conn.commit()
+    logging.info(f"Супервайзеру {supervisor_id} назначено {len(agent_ids)} агентов.")
+
+
+def get_supervisor_team_agents(supervisor_id):
+    """Возвращает список ID и имен агентов в команде супервайзера."""
+    with sqlite3.connect(DATABASE_NAME) as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT user_id, full_name FROM users WHERE supervisor_id = ?", (supervisor_id,))
+        return cursor.fetchall()
+
 def get_full_schedule_map():
-    # ... (эта функция остается без изменений)
     schedule_map = {}
     with sqlite3.connect(DATABASE_NAME) as conn:
         cursor = conn.cursor()
@@ -50,7 +83,6 @@ def get_full_schedule_map():
     return schedule_map
 
 def get_agent_telegram_id_map():
-    # ... (эта функция остается без изменений)
     with sqlite3.connect(DATABASE_NAME) as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT full_name, telegram_id FROM users WHERE role = 'agent' AND telegram_id IS NOT NULL")
@@ -121,7 +153,6 @@ def find_unregistered_agent_by_name(full_name):
         return result[0] if result else None
 
 def link_agent_to_telegram_id(user_id, telegram_id):
-    # ... (эта функция остается без изменений)
     with sqlite3.connect(DATABASE_NAME) as conn:
         cursor = conn.cursor()
         cursor.execute("UPDATE users SET telegram_id = ? WHERE user_id = ?", (telegram_id, user_id))
@@ -214,49 +245,47 @@ def get_visited_points_today(user_id):
         return {row[0] for row in cursor.fetchall()}
     
 
-def get_daily_stats():
+# --- Обновляем функцию для статистики, чтобы она могла работать и для супервайзера ---
+
+def get_daily_stats(supervisor_id=None):
     """
-    Собирает статистику для ежедневного отчета.
-    Возвращает: (общий план, общий факт, список отстающих агентов с их планом/фактом)
+    Собирает статистику. Если передан supervisor_id, то только по его команде.
     """
     with sqlite3.connect(DATABASE_NAME) as conn:
         cursor = conn.cursor()
-        
-        # Определяем ключ текущего дня ('ПН', 'ВТ' и т.д.)
         day_mapping = {0: 'ПН', 1: 'ВТ', 2: 'СР', 3: 'ЧТ', 4: 'ПТ', 5: 'СБ', 6: 'ВС'}
         current_day_key = day_mapping.get(pd.Timestamp.now().weekday())
 
-        if not current_day_key or current_day_key == 'ВС':
-            return 0, 0, [] # В воскресенье или если что-то пошло не так - нет отчета
+        if not current_day_key or current_day_key == 'ВС': return 0, 0, []
 
-        # 1. Считаем общий план на сегодня
-        cursor.execute("""
-            SELECT u.full_name, COUNT(s.point_id)
-            FROM schedules s
-            JOIN users u ON s.user_id = u.user_id
-            WHERE s.day_of_week = ? AND u.role = 'agent'
-            GROUP BY u.full_name
-        """, (current_day_key,))
+        # Базовые запросы
+        plan_query = "SELECT u.full_name, COUNT(s.point_id) FROM schedules s JOIN users u ON s.user_id = u.user_id WHERE s.day_of_week = ? AND u.role = 'agent'"
+        fact_query = "SELECT COUNT(report_id) FROM reports WHERE date(report_time, 'localtime') = date('now', 'localtime')"
+        agents_fact_query = "SELECT u.full_name, COUNT(r.report_id) FROM reports r JOIN users u ON r.user_id = u.user_id WHERE date(r.report_time, 'localtime') = date('now', 'localtime')"
+        
+        params_plan = [current_day_key]
+        params_fact = []
+
+        if supervisor_id:
+            # Если есть ID супервайзера, добавляем фильтр в запросы
+            plan_query += " AND u.supervisor_id = ?"
+            fact_query += " AND user_id IN (SELECT user_id FROM users WHERE supervisor_id = ?)"
+            agents_fact_query += " AND u.supervisor_id = ?"
+            params_plan.append(supervisor_id)
+            params_fact.append(supervisor_id)
+
+        plan_query += " GROUP BY u.full_name"
+        agents_fact_query += " GROUP BY u.full_name"
+
+        cursor.execute(plan_query, params_plan)
         plan_data = cursor.fetchall()
         total_plan = sum(count for _, count in plan_data)
         
-        # 2. Считаем общий факт за сегодня
-        cursor.execute("""
-            SELECT COUNT(report_id)
-            FROM reports
-            WHERE date(report_time, 'localtime') = date('now', 'localtime')
-        """)
+        cursor.execute(fact_query, params_fact)
         total_fact = cursor.fetchone()[0]
 
-        # 3. Находим отстающих
         agents_plan = {name: count for name, count in plan_data}
-        cursor.execute("""
-            SELECT u.full_name, COUNT(r.report_id)
-            FROM reports r
-            JOIN users u ON r.user_id = u.user_id
-            WHERE date(r.report_time, 'localtime') = date('now', 'localtime')
-            GROUP BY u.full_name
-        """)
+        cursor.execute(agents_fact_query, params_fact)
         agents_fact = {name: count for name, count in cursor.fetchall()}
 
         laggards = []

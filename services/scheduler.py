@@ -11,10 +11,11 @@ from database import get_daily_stats
 # Например: 'Europe/Moscow', 'Asia/Almaty', 'Asia/Yekaterinburg'
 TIMEZONE = 'Asia/Almaty'
 
-async def send_daily_report(bot: Bot, report_type: str):
+async def send_daily_report(bot: Bot, report_type: str, supervisor_id=None):
      """Формирует и отправляет ежедневный отчет Директору."""
      
-     total_plan, total_fact, laggards = get_daily_stats()
+      # Теперь передаем supervisor_id в функцию статистики
+     total_plan, total_fact, laggards = get_daily_stats(supervisor_id)
      report_date = datetime.now().strftime('%d.%m.%Y')
 
      if total_plan == 0:
@@ -32,9 +33,12 @@ async def send_daily_report(bot: Bot, report_type: str):
                  text += f"— <i>{agent['name']}</i>: {agent['fact']} из {agent['plan']}\n"
          else:
              text += "✅ <b>Все агенты выполнили план!</b>"
-             
+
+         # Определяем, кому отправлять
+         chat_id_to_send = supervisor_id if supervisor_id else DIRECTOR_ID
+         
      try:
-         await bot.send_message(chat_id=DIRECTOR_ID, text=text)
+         await bot.send_message(chat_id=chat_id_to_send, text=text)
          logging.info(f"Отправлен {report_type} отчет Директору.")
      except Exception as e:
          logging.error(f"Не удалось отправить {report_type} отчет Директору: {e}")

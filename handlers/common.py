@@ -48,17 +48,27 @@ async def cmd_start(message: types.Message, state: FSMContext):
         await message.answer(f"Добро пожаловать, {user_full_name}! 👋\nДля начала работы введите свой инвайт-код.")
         await state.set_state(Registration.waiting_for_code)
 
+# Обновляем process_invite_code, чтобы он понимал разные роли
 @router.message(Registration.waiting_for_code)
 async def process_invite_code(message: types.Message, state: FSMContext):
     code = message.text.strip()
     code_data = get_invite_code(code)
     
     if not code_data or not code_data[1]:
-        await message.answer("Неверный или уже использованный инвайт-код."); return
+        await message.answer("Неверный код."); return
 
-    await state.update_data(code=code)
-    await message.answer("Код принят! ✅\n\nТеперь, пожалуйста, введите свои <b>Фамилию Имя Отчество</b>.")
-    await state.set_state(Registration.waiting_for_fio)
+    role = code_data[0]
+    await state.update_data(code=code, role=role)
+
+    if role == 'agent':
+        await message.answer("Код принят! Введите ФИО, как в расписании.")
+        await state.set_state(Registration.waiting_for_fio)
+    elif role == 'supervisor':
+        # Супервайзеру не нужно выбирать ФИО, он регистрируется под именем из Telegram
+        add_user(message.from_user.id, message.from_user.full_name, 'supervisor')
+        deactivate_invite_code(code)
+        await message.answer("✅ Регистрация супервайзера успешно завершена!", reply_markup=main_menu_keyboard('supervisor'))
+        await state.clear()
 
 @router.message(Registration.waiting_for_fio)
 async def process_fio(message: types.Message, state: FSMContext):
@@ -70,7 +80,7 @@ async def process_fio(message: types.Message, state: FSMContext):
         link_agent_to_telegram_id(agent_user_id, message.from_user.id)
         deactivate_invite_code(state_data.get('code'))
 
-        await message.answer("✅ **Регистрация успешно завершена!**", reply_markup=main_menu_keyboard('agent'))
+        await message.answer("✅ Регистрация успешно завершена!", reply_markup=main_menu_keyboard('agent'))
         await state.clear()
     else:
         await message.answer("❌ Агент с таким ФИО не найден. Проверьте правильность написания и попробуйте еще раз.")
