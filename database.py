@@ -210,3 +210,57 @@ def get_visited_points_today(user_id):
         )
         # Возвращаем set для быстрой проверки (point_id in visited_ids)
         return {row[0] for row in cursor.fetchall()}
+    
+
+def get_daily_stats():
+    """
+    Собирает статистику для ежедневного отчета.
+    Возвращает: (общий план, общий факт, список отстающих агентов с их планом/фактом)
+    """
+    with sqlite3.connect(DATABASE_NAME) as conn:
+        cursor = conn.cursor()
+        
+        # Определяем ключ текущего дня ('ПН', 'ВТ' и т.д.)
+        day_mapping = {0: 'ПН', 1: 'ВТ', 2: 'СР', 3: 'ЧТ', 4: 'ПТ', 5: 'СБ', 6: 'ВС'}
+        current_day_key = day_mapping.get(pd.Timestamp.now().weekday())
+
+        if not current_day_key or current_day_key == 'ВС':
+            return 0, 0, [] # В воскресенье или если что-то пошло не так - нет отчета
+
+        # 1. Считаем общий план на сегодня
+        cursor.execute("""
+            SELECT u.full_name, COUNT(s.point_id)
+            FROM schedules s
+            JOIN users u ON s.user_id = u.user_id
+            WHERE s.day_of_week = ? AND u.role = 'agent'
+            GROUP BY u.full_name
+        """, (current_day_key,))
+        plan_data = cursor.fetchall()
+        total_plan = sum(count for _, count in plan_data)
+        
+        # 2. Считаем общий факт за сегодня
+        cursor.execute("""
+            SELECT COUNT(report_id)
+            FROM reports
+            WHERE date(report_time, 'localtime') = date('now', 'localtime')
+        """)
+        total_fact = cursor.fetchone()[0]
+
+        # 3. Находим отстающих
+        agents_plan = {name: count for name, count in plan_data}
+        cursor.execute("""
+            SELECT u.full_name, COUNT(r.report_id)
+            FROM reports r
+            JOIN users u ON r.user_id = u.user_id
+            WHERE date(r.report_time, 'localtime') = date('now', 'localtime')
+            GROUP BY u.full_name
+        """)
+        agents_fact = {name: count for name, count in cursor.fetchall()}
+
+        laggards = []
+        for agent_name, plan_count in agents_plan.items():
+            fact_count = agents_fact.get(agent_name, 0)
+            if fact_count < plan_count:
+                laggards.append({'name': agent_name, 'plan': plan_count, 'fact': fact_count})
+        
+        return total_plan, total_fact, laggards

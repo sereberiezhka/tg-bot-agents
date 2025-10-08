@@ -7,6 +7,7 @@ from aiogram.client.default import DefaultBotProperties
 from config import BOT_TOKEN
 from database import init_db
 from handlers import common, director, agent
+from services.scheduler import setup_scheduler
 
 async def set_main_menu(bot: Bot):
     """Создает кнопку Меню с основными командами."""
@@ -27,6 +28,9 @@ async def main():
 
     # Устанавливаем меню команд при запуске
     await set_main_menu(bot)
+
+    # --- ЗАПУСКАЕМ ПЛАНИРОВЩИК ---
+    setup_scheduler(bot)
 
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
