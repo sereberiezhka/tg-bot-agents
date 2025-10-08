@@ -69,3 +69,14 @@ async def handle_schedule_file(message: types.Message, bot: Bot):
     except Exception as e:
         logging.error(f"Ошибка при обработке файла: {e}")
         await message.answer(f"Ой, произошла ошибка при обработке файла: {e}")
+
+
+@router.callback_query(F.data == "director_get_report_link")
+async def get_report_link_handler(callback: types.CallbackQuery):
+    # Получаем ссылку на таблицу из config.py (надо будет ее туда добавить)
+    from config import GOOGLE_SHEET_URL # Импортируем прямо здесь
+    await callback.message.answer(
+        f"Для просмотра детальных отчетов, пожалуйста, перейдите по ссылке:\n\n{GOOGLE_SHEET_URL}",
+        disable_web_page_preview=True # Чтобы телеграм не пытался показать превью таблицы
+    )
+    await callback.answer()

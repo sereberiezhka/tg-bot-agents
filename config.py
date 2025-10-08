@@ -13,3 +13,6 @@ GOOGLE_SHEET_NAME = "Отчеты по агентам"
 
 # ID администратора (Директора), который может загружать расписание
 DIRECTOR_ID = 1669140535
+
+# Ссылка на твою Google Таблицу для кнопки "Отчеты"
+GOOGLE_SHEET_URL = "https://docs.google.com/spreadsheets/d/1gAPQMTl7DjcJiLMVT8yxQNb-s5FmnF3m4mH-4aHDTWg/edit?hl=ru&gid=0#gid=0"

@@ -8,6 +8,7 @@ def main_menu_keyboard(role: str):
     if role == 'director':
         builder.add(InlineKeyboardButton(text="📥 Загрузить расписание", callback_data="director_upload_schedule"))
         builder.add(InlineKeyboardButton(text="🔑 Создать инвайт-код", callback_data="director_create_invite"))
+        builder.add(InlineKeyboardButton(text="📊 Отчеты (Google Sheets)", callback_data="director_get_report_link"))
     elif role == 'agent':
         builder.add(InlineKeyboardButton(text="🗺️ Мой маршрут на сегодня", callback_data="agent_get_schedule"))
     

@@ -181,15 +181,17 @@ def get_all_users_for_debug():
         return cursor.fetchall()
     
 def save_report(user_id, point_id, photo_file_ids_json, latitude, longitude):
-    """Сохраняет данные отчета в таблицу reports."""
+    """Сохраняет данные отчета и возвращает ID этого отчета."""
     with sqlite3.connect(DATABASE_NAME) as conn:
         cursor = conn.cursor()
         cursor.execute(
             "INSERT INTO reports (user_id, point_id, photo_file_ids, latitude, longitude) VALUES (?, ?, ?, ?, ?)",
             (user_id, point_id, photo_file_ids_json, latitude, longitude)
         )
+        report_id = cursor.lastrowid
         conn.commit()
-        logging.info(f"Сохранен отчет от user_id={user_id} для point_id={point_id}")
+        logging.info(f"Сохранен отчет (id={report_id}) от user_id={user_id}")
+        return report_id # <-- ВОЗВРАЩАЕМ ID```
 
 def get_point_id_by_name(point_name):
     """Находит ID торговой точки по ее точному названию."""
@@ -264,3 +266,26 @@ def get_daily_stats():
                 laggards.append({'name': agent_name, 'plan': plan_count, 'fact': fact_count})
         
         return total_plan, total_fact, laggards
+    
+
+def get_report_details_for_gsheet(report_id):
+    """
+    Возвращает все детали отчета для записи в Google Таблицу.
+    """
+    with sqlite3.connect(DATABASE_NAME) as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT
+                r.report_time,
+                u.full_name,
+                tp.name,
+                tp.parent_object,
+                r.latitude,
+                r.longitude,
+                r.photo_file_ids
+            FROM reports r
+            JOIN users u ON r.user_id = u.user_id
+            JOIN trade_points tp ON r.point_id = tp.point_id
+            WHERE r.report_id = ?
+        """, (report_id,))
+        return cursor.fetchone()

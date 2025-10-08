@@ -8,6 +8,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
+from services.google_sheets import add_report_to_sheet
 
 from database import (
     get_agent_by_telegram_id, get_agent_schedule_for_day, save_report, 
@@ -158,8 +159,15 @@ async def handle_location(message: types.Message, state: FSMContext, bot: Bot):
         await message.answer("Ошибка, не все данные собраны. Начните заново.", reply_markup=types.ReplyKeyboardRemove()); await state.clear(); return
     
     agent_db_id, agent_full_name, _ = agent_data
-    save_report(user_id=agent_db_id, point_id=point_id, photo_file_ids_json=json.dumps(photo_file_ids), latitude=message.location.latitude, longitude=message.location.longitude)
-    
+     # 1. Сохраняем отчет и получаем его ID
+    report_id = save_report(
+        user_id=agent_db_id, point_id=point_id, photo_file_ids_json=json.dumps(photo_file_ids),
+        latitude=message.location.latitude, longitude=message.location.longitude
+    )
+    # 2. Вызываем функцию для добавления данных в Google Таблицу
+    if report_id:
+        add_report_to_sheet(report_id)
+     
     await message.answer(f"✅ Отчет по точке <b>{point_name}</b> принят!", reply_markup=types.ReplyKeyboardRemove())
     
     # Отправка в архив (без изменений)

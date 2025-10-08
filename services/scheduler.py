@@ -55,8 +55,8 @@ def setup_scheduler(bot: Bot):
     scheduler.add_job(
         send_daily_report,
         trigger='cron',
-        hour=19,
-        minute=5,
+        hour=17,
+        minute=23,
         kwargs={'bot': bot, 'report_type': 'Итоговый'}
     )
 
