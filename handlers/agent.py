@@ -74,9 +74,9 @@ async def show_schedule(message: types.Message):
     
     # Редактируем старое сообщение или отправляем новое
     try:
-        await message.edit_text(f"Твой маршрут на **{current_day_full_name}**. \nНажми на точку, чтобы начать отчет:", reply_markup=builder.as_markup())
+        await message.edit_text(f"Твой маршрут на <b>{current_day_full_name}</b>. \nНажми на точку, чтобы начать отчет:", reply_markup=builder.as_markup())
     except:
-        await message.answer(f"Твой маршрут на **{current_day_full_name}**. \nНажми на точку, чтобы начать отчет:", reply_markup=builder.as_markup())
+        await message.answer(f"Твой маршрут на <b>{current_day_full_name}</b>. \nНажми на точку, чтобы начать отчет:", reply_markup=builder.as_markup())
 
 @router.callback_query(F.data == "point_visited")
 async def point_visited_callback(callback: types.CallbackQuery):

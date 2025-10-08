@@ -77,6 +77,7 @@ async def get_report_link_handler(callback: types.CallbackQuery):
     from config import GOOGLE_SHEET_URL # Импортируем прямо здесь
     await callback.message.answer(
         f"Для просмотра детальных отчетов, пожалуйста, перейдите по ссылке:\n\n{GOOGLE_SHEET_URL}",
-        disable_web_page_preview=True # Чтобы телеграм не пытался показать превью таблицы
+        disable_web_page_preview=True,
+        reply_markup=back_to_main_menu_keyboard('director') # Чтобы телеграм не пытался показать превью таблицы
     )
     await callback.answer()

@@ -17,24 +17,35 @@ class Registration(StatesGroup):
     waiting_for_code = State()
     waiting_for_fio = State()
 
+# handlers/common.py - заменяем эту функцию
+
 @router.message(Command("start"))
 async def cmd_start(message: types.Message, state: FSMContext):
     await state.clear()
     user_id = message.from_user.id
+    user_full_name = message.from_user.full_name # Получаем имя из Telegram
     db_user = get_user_by_telegram_id(user_id)
 
-    # Принудительно убираем старую Reply-клавиатуру
     await message.answer("Перезагрузка меню...", reply_markup=types.ReplyKeyboardRemove())
 
     if user_id == DIRECTOR_ID and not db_user:
-        add_user(user_id, message.from_user.full_name, 'director')
+        add_user(user_id, user_full_name, 'director')
         db_user = get_user_by_telegram_id(user_id)
 
     if db_user:
+        # Теперь db_user это кортеж (user_id, full_name, role, ...)
+        # Берем ФИО из базы данных, оно может быть более полным, чем в Telegram
+        db_full_name = db_user[1] 
         role = db_user[2]
-        await message.answer(f"Добро пожаловать! Ваша роль: {role.capitalize()}", reply_markup=main_menu_keyboard(role))
+        
+        # --- НОВОЕ ПРИВЕТСТВИЕ ---
+        welcome_text = (
+            f"Здравствуйте, <b>{db_full_name}</b>!\n"
+            f"Ваша роль: <b>{role.capitalize()}</b>"
+        )
+        await message.answer(welcome_text, reply_markup=main_menu_keyboard(role))
     else:
-        await message.answer(f"Привет, {message.from_user.full_name}! 👋\nДля начала работы введите свой инвайт-код.")
+        await message.answer(f"Добро пожаловать, {user_full_name}! 👋\nДля начала работы введите свой инвайт-код.")
         await state.set_state(Registration.waiting_for_code)
 
 @router.message(Registration.waiting_for_code)

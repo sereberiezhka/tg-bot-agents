@@ -12,30 +12,32 @@ from database import get_daily_stats
 TIMEZONE = 'Asia/Almaty'
 
 async def send_daily_report(bot: Bot, report_type: str):
-    """Формирует и отправляет ежедневный отчет Директору."""
-    
-    total_plan, total_fact, laggards = get_daily_stats()
+     """Формирует и отправляет ежедневный отчет Директору."""
+     
+     total_plan, total_fact, laggards = get_daily_stats()
+     report_date = datetime.now().strftime('%d.%m.%Y')
 
-    if total_plan == 0:
-        text = f"📈 **{report_type} отчет**\n\nНа сегодня нет запланированных визитов."
-    else:
-        completion_percentage = (total_fact / total_plan) * 100 if total_plan > 0 else 0
-        text = (
-            f"📈 **{report_type} отчет** за {datetime.now().strftime('%d.%m.%Y')}\n\n"
-            f"🔹 **Общий прогресс:** {total_fact} из {total_plan} ({completion_percentage:.1f}%)\n\n"
-        )
-        if laggards:
-            text += "🔻 **Отстающие агенты:**\n"
-            for agent in laggards:
-                text += f"— {agent['name']}: {agent['fact']} из {agent['plan']}\n"
-        else:
-            text += "✅ **Все агенты выполнили план!**"
-            
-    try:
-        await bot.send_message(chat_id=DIRECTOR_ID, text=text)
-        logging.info(f"Отправлен {report_type} отчет Директору.")
-    except Exception as e:
-        logging.error(f"Не удалось отправить {report_type} отчет Директору: {e}")
+     if total_plan == 0:
+         text = f"📈 <b>{report_type} отчет за {report_date}</b>\n\nНа сегодня нет запланированных визитов."
+     else:
+         completion_percentage = (total_fact / total_plan) * 100 if total_plan > 0 else 0
+         text = (
+             f"📈 <b>{report_type} отчет за {report_date}</b>\n\n"
+             f"🔹 <b>Общий прогресс:</b> {total_fact} из {total_plan} ({completion_percentage:.1f}%)\n\n"
+         )
+         if laggards:
+             text += "🔻 <b>Отстающие агенты:</b>\n"
+             for agent in laggards:
+                 # Используем <i> для курсива, чтобы выделить данные
+                 text += f"— <i>{agent['name']}</i>: {agent['fact']} из {agent['plan']}\n"
+         else:
+             text += "✅ <b>Все агенты выполнили план!</b>"
+             
+     try:
+         await bot.send_message(chat_id=DIRECTOR_ID, text=text)
+         logging.info(f"Отправлен {report_type} отчет Директору.")
+     except Exception as e:
+         logging.error(f"Не удалось отправить {report_type} отчет Директору: {e}")
 
 
 def setup_scheduler(bot: Bot):
