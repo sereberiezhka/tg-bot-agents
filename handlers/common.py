@@ -63,3 +63,16 @@ async def process_fio(message: types.Message, state: FSMContext):
         await state.clear()
     else:
         await message.answer("❌ Агент с таким ФИО не найден. Проверьте правильность написания и попробуйте еще раз.")
+
+# Этот хэндлер будет ловить все нажатия на кнопки "Назад в меню"
+@router.callback_query(F.data.startswith("start_menu_"))
+async def back_to_main_menu_handler(callback: types.CallbackQuery, state: FSMContext):
+    await state.clear() # Очищаем состояние на всякий случай
+    role = callback.data.split("_")[2]
+    
+    # Редактируем сообщение, убирая старые кнопки и текст
+    await callback.message.edit_text(
+        f"Главное меню. Ваша роль: {role.capitalize()}",
+        reply_markup=main_menu_keyboard(role)
+    )
+    await callback.answer()

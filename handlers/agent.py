@@ -41,14 +41,21 @@ async def show_schedule(message: types.Message):
     
     # Получаем список посещенных СЕГОДНЯ точек
     visited_point_ids = get_visited_points_today(agent_db_id)
-
-    current_day = pd.Timestamp.now().strftime('%A') # Получаем русское название дня
+    
     day_mapping = {0: 'ПН', 1: 'ВТ', 2: 'СР', 3: 'ЧТ', 4: 'ПТ', 5: 'СБ', 6: 'ВС'}
-    current_day_key = day_mapping.get(pd.Timestamp.now().weekday())
+    weekday_num = pd.Timestamp.now().weekday()
+    current_day_key = day_mapping.get(weekday_num) # 'ПН', 'ВТ' и т.д.
+
+    # Получаем полное русское название для красивого вывода
+    day_names_full = {
+        'ПН': 'Понедельник', 'ВТ': 'Вторник', 'СР': 'Среда', 
+        'ЧТ': 'Четверг', 'ПТ': 'Пятница', 'СБ': 'Суббота', 'ВС': 'Воскресенье'
+    }
+    current_day_full_name = day_names_full.get(current_day_key, "Неизвестный день")
 
     schedule = get_agent_schedule_for_day(agent_db_id, current_day_key)
     if not schedule:
-        await message.answer(f"На сегодня ({current_day.capitalize()}) у тебя нет задач."); return
+        await message.answer(f"На сегодня ({current_day_full_name}) у тебя нет задач."); return
     
     builder = InlineKeyboardBuilder()
     for point_id, point_name, _ in schedule:
@@ -66,9 +73,9 @@ async def show_schedule(message: types.Message):
     
     # Редактируем старое сообщение или отправляем новое
     try:
-        await message.edit_text(f"Твой маршрут на **{current_day.capitalize()}**. \nНажми на точку, чтобы начать отчет:", reply_markup=builder.as_markup())
+        await message.edit_text(f"Твой маршрут на **{current_day_full_name}**. \nНажми на точку, чтобы начать отчет:", reply_markup=builder.as_markup())
     except:
-        await message.answer(f"Твой маршрут на **{current_day.capitalize()}**. \nНажми на точку, чтобы начать отчет:", reply_markup=builder.as_markup())
+        await message.answer(f"Твой маршрут на **{current_day_full_name}**. \nНажми на точку, чтобы начать отчет:", reply_markup=builder.as_markup())
 
 @router.callback_query(F.data == "point_visited")
 async def point_visited_callback(callback: types.CallbackQuery):
@@ -98,30 +105,38 @@ async def confirm_point_no(callback: types.CallbackQuery, state: FSMContext):
     await show_schedule(callback.message)
     await state.clear()
 
-# ... (остальные функции handle_photos и handle_location остаются такими же, как в прошлом шаге) ...
-# ... Но в handle_location будет одно важное изменение в конце!
-
 @router.callback_query(F.data == "confirm_point_yes", Reporting.confirming_point)
 async def confirm_point_yes(callback: types.CallbackQuery, state: FSMContext):
     data = await state.get_data()
     point_name = data.get("point_name")
-    await callback.message.edit_text(f"Точка: <b>{point_name}</b>\n\nОтправьте от 2 до 4 фотографий (можно альбомом).")
+    await callback.message.edit_text(f"Точка: <b>{point_name}</b>\n\nОтправьте от 2 до 8 фотографий (можно альбомом).")
     await state.set_state(Reporting.waiting_for_photos)
 
 
 @router.message(Reporting.waiting_for_photos, F.photo)
 async def handle_photos(message: types.Message, state: FSMContext, bot: Bot):
-    # ... (код этой функции остается без изменений, но убедитесь, что bot передается)
     user_id = message.from_user.id
     if user_id not in user_photos_buffer: user_photos_buffer[user_id] = []
     user_photos_buffer[user_id].append(message.photo[-1].file_id)
     
     async def process_album():
-        await asyncio.sleep(5)
+        await asyncio.sleep(7)
         photos_received = user_photos_buffer.pop(user_id, [])
         if not photos_received: return
-        if not (2 <= len(photos_received) <= 4):
-            await message.answer(f"Нужно от 2 до 4 фото, вы отправили {len(photos_received)}. Попробуйте снова."); await state.clear(); return
+        if not (2 <= len(photos_received) <= 8):
+            # Получаем данные о точке из состояния
+            data = await state.get_data()
+            point_name = data.get("point_name", "Неизвестная точка")
+
+            # Очищаем буфер, чтобы старые фото не мешали
+            user_photos_buffer.pop(user_id, None)
+
+            await message.answer(
+                f"❌ **Ошибка!** Нужно отправить от 2 до 8 фотографий. Вы отправили {len(photos_received)}.\n\n"
+                f"Пожалуйста, отправьте правильное количество фото для точки <b>{point_name}</b> еще раз."
+            )
+            # Мы НЕ вызываем state.clear(), бот остается в состоянии waiting_for_photos
+            return
         
         await state.update_data(photos=photos_received)
         kb = [[types.KeyboardButton(text="📍 Отправить геолокацию", request_location=True)]]

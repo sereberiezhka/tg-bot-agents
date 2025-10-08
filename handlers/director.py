@@ -1,8 +1,9 @@
 # handlers/director.py (полностью обновленный)
 import logging
 import pandas as pd
-from aiogram import Router, F, types, Bot
 
+from aiogram import Router, F, types, Bot
+from ui.keyboards import back_to_main_menu_keyboard
 from config import DIRECTOR_ID
 from database import create_invite_code, save_schedule_from_dataframe
 
@@ -20,9 +21,10 @@ async def create_invite_handler(callback: types.CallbackQuery):
         f"Создан новый инвайт-код для Агента:\n\n"
         f"`{new_code}`\n\n"
         f"Отправьте этот код новому сотруднику. Он действует один раз.",
-        parse_mode="Markdown"
+        parse_mode="Markdown",
+        reply_markup=back_to_main_menu_keyboard('director') 
     )
-    await callback.answer() # "Закрываем" часики на кнопке
+    await callback.answer()
 
 @router.callback_query(F.data == "director_upload_schedule")
 async def ask_for_schedule_file(callback: types.CallbackQuery):
@@ -50,11 +52,11 @@ async def handle_schedule_file(message: types.Message, bot: Bot):
         await message.answer(
             f"✅ Расписание успешно сохранено!\n\n"
             f"👨‍💼 Уникальных агентов: {num_agents}\n"
-            f"🏢 Уникальных торговых точек: {num_points}"
+            f"🏢 Уникальных торговых точек: {num_points}",
+            reply_markup=back_to_main_menu_keyboard('director')
         )
 
         if affected_agent_ids:
-            # ... (логика уведомлений остается без изменений)
             notification_count = 0
             for agent_id in affected_agent_ids:
                 try:

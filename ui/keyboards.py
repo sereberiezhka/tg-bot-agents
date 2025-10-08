@@ -13,3 +13,10 @@ def main_menu_keyboard(role: str):
     
     builder.adjust(1)
     return builder.as_markup()
+
+def back_to_main_menu_keyboard(role: str):
+    """Возвращает клавиатуру с одной кнопкой "Назад в меню"."""
+    builder = InlineKeyboardBuilder()
+    # Мы используем callback_data 'start_menu', чтобы вызвать главное меню
+    builder.add(InlineKeyboardButton(text="⬅️ Назад в главное меню", callback_data=f"start_menu_{role}"))
+    return builder.as_markup()
