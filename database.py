@@ -5,6 +5,9 @@ import pandas as pd
 import logging
 import uuid
 
+from datetime import date, datetime
+
+
 DATABASE_NAME = 'bot_database.db'
 logging.basicConfig(level=logging.INFO)
 
@@ -24,7 +27,7 @@ def init_db():
                 schedule_id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, point_id INTEGER NOT NULL, day_of_week TEXT NOT NULL,
                 FOREIGN KEY (user_id) REFERENCES users(user_id), FOREIGN KEY (point_id) REFERENCES trade_points(point_id)
             )""")
-        cursor.execute("CREATE TABLE IF NOT EXISTS reports (report_id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, point_id INTEGER NOT NULL, report_time DATETIME DEFAULT CURRENT_TIMESTAMP, photo_file_ids TEXT, latitude REAL, longitude REAL, FOREIGN KEY (user_id) REFERENCES users(user_id), FOREIGN KEY (point_id) REFERENCES trade_points(point_id))")
+        cursor.execute("CREATE TABLE IF NOT EXISTS reports (report_id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, point_id INTEGER NOT NULL, report_time DATETIME DEFAULT CURRENT_TIMESTAMP, photo_file_ids TEXT, latitude REAL, longitude REAL, archive_message_link TEXT, FOREIGN KEY (user_id) REFERENCES users(user_id), FOREIGN KEY (point_id) REFERENCES trade_points(point_id))")
         cursor.execute("CREATE TABLE IF NOT EXISTS invite_codes (code_id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT NOT NULL UNIQUE, role TEXT NOT NULL, is_active BOOLEAN DEFAULT TRUE)")
         conn.commit()
     logging.info("База данных инициализирована.")
@@ -211,18 +214,18 @@ def get_all_users_for_debug():
         cursor.execute("SELECT user_id, full_name, role, telegram_id FROM users")
         return cursor.fetchall()
     
-def save_report(user_id, point_id, photo_file_ids_json, latitude, longitude):
-    """Сохраняет данные отчета и возвращает ID этого отчета."""
+def save_report(user_id, point_id, photo_file_ids_json, latitude, longitude, archive_message_link=None):
+    """Сохраняет данные отчета, включая ссылку на пост в архиве, и возвращает ID."""
     with sqlite3.connect(DATABASE_NAME) as conn:
         cursor = conn.cursor()
         cursor.execute(
-            "INSERT INTO reports (user_id, point_id, photo_file_ids, latitude, longitude) VALUES (?, ?, ?, ?, ?)",
-            (user_id, point_id, photo_file_ids_json, latitude, longitude)
+            "INSERT INTO reports (user_id, point_id, photo_file_ids, latitude, longitude, archive_message_link) VALUES (?, ?, ?, ?, ?, ?)",
+            (user_id, point_id, photo_file_ids_json, latitude, longitude, archive_message_link)
         )
         report_id = cursor.lastrowid
         conn.commit()
         logging.info(f"Сохранен отчет (id={report_id}) от user_id={user_id}")
-        return report_id # <-- ВОЗВРАЩАЕМ ID```
+        return report_id
 
 def get_point_id_by_name(point_name):
     """Находит ID торговой точки по ее точному названию."""
@@ -305,20 +308,13 @@ def get_daily_stats(supervisor_id=None):
     
 
 def get_report_details_for_gsheet(report_id):
-    """
-    Возвращает все детали отчета для записи в Google Таблицу.
-    """
+    """Возвращает все детали отчета, включая ссылку на архив."""
     with sqlite3.connect(DATABASE_NAME) as conn:
         cursor = conn.cursor()
         cursor.execute("""
             SELECT
-                r.report_time,
-                u.full_name,
-                tp.name,
-                tp.parent_object,
-                r.latitude,
-                r.longitude,
-                r.photo_file_ids
+                r.report_time, u.full_name, tp.name, tp.parent_object,
+                r.latitude, r.longitude, r.archive_message_link
             FROM reports r
             JOIN users u ON r.user_id = u.user_id
             JOIN trade_points tp ON r.point_id = tp.point_id
@@ -339,3 +335,46 @@ def get_work_session_times(user_id):
             WHERE user_id = ? AND date(report_time, 'localtime') = date('now', 'localtime')
         """, (user_id,))
         return cursor.fetchone()
+    
+def get_stats_for_period(start_date: date, end_date: date):
+    """
+    Собирает агрегированную статистику по всем агентам за указанный период,
+    корректно суммируя рабочее время по дням.
+    """
+    with sqlite3.connect(DATABASE_NAME) as conn:
+        cursor = conn.cursor()
+        
+        # Этот сложный SQL-запрос делает всю магию:
+        # 1. Группирует все отчеты по агенту (u.full_name) И по дате (date(...))
+        # 2. Для каждой такой группы (агент + день) находит MIN и MAX время.
+        # 3. Затем внешним запросом он снова группирует уже по агенту,
+        #    суммируя количество визитов и разницу во времени (в секундах) за каждый день.
+        cursor.execute("""
+            SELECT
+                full_name,
+                SUM(daily_visits) as total_visits,
+                SUM(daily_duration_seconds) as total_duration_seconds
+            FROM (
+                SELECT
+                    u.full_name,
+                    date(r.report_time, 'localtime') as report_date,
+                    COUNT(r.report_id) as daily_visits,
+                    -- Считаем разницу между MAX и MIN временем в секундах
+                    (strftime('%s', MAX(r.report_time)) - strftime('%s', MIN(r.report_time))) as daily_duration_seconds
+                FROM reports r
+                JOIN users u ON r.user_id = u.user_id
+                WHERE date(r.report_time, 'localtime') BETWEEN ? AND ?
+                GROUP BY u.full_name, report_date
+            )
+            GROUP BY full_name
+        """, (start_date.isoformat(), end_date.isoformat()))
+        
+        agent_stats = []
+        for full_name, total_visits, total_duration_seconds in cursor.fetchall():
+            agent_stats.append({
+                'name': full_name,
+                'visits': total_visits,
+                # Сразу передаем итоговую сумму секунд, а не даты
+                'duration_seconds': total_duration_seconds or 0
+            })
+        return agent_stats

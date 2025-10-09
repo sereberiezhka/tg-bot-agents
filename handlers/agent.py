@@ -3,6 +3,9 @@ import pandas as pd
 import json
 import asyncio
 import logging
+import pytz
+
+from datetime import datetime
 from aiogram import Router, F, types, Bot
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -159,25 +162,51 @@ async def handle_location(message: types.Message, state: FSMContext, bot: Bot):
         await message.answer("Ошибка, не все данные собраны. Начните заново.", reply_markup=types.ReplyKeyboardRemove()); await state.clear(); return
     
     agent_db_id, agent_full_name, _ = agent_data
-     # 1. Сохраняем отчет и получаем его ID
+    archive_link = None  # Изначально ссылки нет
+
+    # --- НОВАЯ ЛОГИКА ГЕНЕРАЦИИ ССЫЛКИ ---
+    try:
+        user_timezone = pytz.timezone('Asia/Almaty') 
+        # Конвертируем UTC время сообщения в твой часовой пояс
+        local_time = message.date.astimezone(user_timezone)
+
+        # 1. Отправляем медиа-группу в канал
+        caption = (f"📸 <b>Фотоотчет</b>\n\n"
+                   f"👤 Агент: {agent_full_name}\n"
+                   f"📍 Точка: {point_name}\n"
+                   f"⏰ Время: {local_time.strftime('%Y-%m-%d %H:%M:%S')}")
+        
+        media_group = [types.InputMediaPhoto(media=file_id) for file_id in photo_file_ids]
+        if media_group:
+            media_group[0].caption = caption
+            # 2. Получаем ответ от Telegram с информацией об отправленных сообщениях
+            sent_messages = await bot.send_media_group(chat_id=PHOTO_ARCHIVE_CHANNEL_ID, media=media_group)
+            
+            # 3. Формируем ссылку на первое сообщение в группе
+            if sent_messages:
+                message_id = sent_messages[0].message_id
+                # Убираем -100 из ID канала для формирования ссылки
+                channel_id_for_link = str(PHOTO_ARCHIVE_CHANNEL_ID)[4:]
+                archive_link = f"https://t.me/c/{channel_id_for_link}/{message_id}"
+                logging.info(f"Сгенерирована ссылка на архив: {archive_link}")
+
+    except Exception as e:
+        logging.error(f"Не удалось отправить фото в архивный канал {PHOTO_ARCHIVE_CHANNEL_ID}: {e}")
+        await bot.send_message(chat_id=message.from_user.id, text="Не удалось отправить фото в архив, но отчет будет сохранен без ссылки.")
+
+    # Сохраняем отчет в базу данных, теперь ВМЕСТЕ со ссылкой
     report_id = save_report(
         user_id=agent_db_id, point_id=point_id, photo_file_ids_json=json.dumps(photo_file_ids),
-        latitude=message.location.latitude, longitude=message.location.longitude
+        latitude=message.location.latitude, longitude=message.location.longitude,
+        archive_message_link=archive_link # <-- ПЕРЕДАЕМ ССЫЛКУ
     )
-    # 2. Вызываем функцию для добавления данных в Google Таблицу
+
+    await message.answer(f"✅ Отчет по точке <b>{point_name}</b> принят!", reply_markup=types.ReplyKeyboardRemove())
+
+    # Добавляем данные в Google Таблицу
     if report_id:
         add_report_to_sheet(report_id)
-     
-    await message.answer(f"✅ Отчет по точке <b>{point_name}</b> принят!", reply_markup=types.ReplyKeyboardRemove())
-    
-    # Отправка в архив (без изменений)
-    caption = f"📸 **Новый фотоотчет**\n\n👤 **Агент:** {agent_full_name}\n📍 **Торговая точка:** {point_name}\n⏰ **Время:** {message.date.strftime('%Y-%m-%d %H:%M:%S')}"
-    try:
-        media_group = [types.InputMediaPhoto(media=file_id) for file_id in photo_file_ids]
-        if media_group: media_group[0].caption = caption; await bot.send_media_group(chat_id=PHOTO_ARCHIVE_CHANNEL_ID, media=media_group)
-    except Exception as e:
-        logging.error(f"Не удалось отправить фото в архив: {e}")
 
-    # --- ВОЗВРАЩАЕМ ПОЛЬЗОВАТЕЛЯ В МЕНЮ МАРШРУТА ---
+    # Возвращаемся в меню маршрута
     await state.clear()
-    await show_schedule(message) # Вызываем функцию, чтобы показать обновленный список с галочкой
+    await show_schedule(message)

@@ -2,9 +2,10 @@ import gspread
 import logging
 from datetime import datetime, timedelta
 import pytz
+from datetime import date, timedelta
 
 from config import GOOGLE_CREDS_JSON, GOOGLE_SHEET_NAME
-from database import get_report_details_for_gsheet, get_daily_stats
+from database import get_report_details_for_gsheet, get_daily_stats, get_stats_for_period
 
 # УКАЖИ СВОЙ ЧАСОВОЙ ПОЯС (тот же, что и в scheduler.py)
 TIMEZONE = 'Asia/Almaty'
@@ -83,10 +84,9 @@ def update_daily_summary():
         logging.error(f"Не удалось обновить сводку в Google Sheets: {e}")
 
 def add_report_to_sheet(report_id):
-    """Добавляет строку с данными отчета в Google Таблицу."""
-    worksheet = get_worksheet()
+    worksheet = get_worksheet("Журнал отчетов")
     if not worksheet:
-        logging.error("Не удалось получить доступ к листу 'Журнал отчетов'.")
+        logging.error("Не удалось добавить в журнал: лист 'Журнал отчетов' не найден.")
         return
 
     details = get_report_details_for_gsheet(report_id)
@@ -94,23 +94,70 @@ def add_report_to_sheet(report_id):
         logging.error(f"Не удалось получить детали для отчета id={report_id}.")
         return
 
-    report_time_utc = datetime.strptime(details[0].split('.')[0], '%Y-%m-%d %H:%M:%S')
+    # Теперь мы получаем 7 значений, включая ссылку
+    report_time_utc_str, agent_name, point_name, parent_object, lat, lon, archive_link = details
+    
+    report_time_utc = datetime.strptime(report_time_utc_str.split('.')[0], '%Y-%m-%d %H:%M:%S')
     local_tz = pytz.timezone(TIMEZONE)
     report_time_local = pytz.utc.localize(report_time_utc).astimezone(local_tz)
 
     date_str = report_time_local.strftime('%Y-%m-%d')
     time_str = report_time_local.strftime('%H:%M:%S')
-    agent_name = details[1]
-    point_name = details[2]
-    parent_object = details[3]
-    coords = f"{details[4]}, {details[5]}"
-    # Пока не делаем ссылку на фото, просто пишем "Да"
-    photos_link = "Фото в архиве" 
+    coords = f"{lat}, {lon}"
 
-    row_to_insert = [date_str, time_str, agent_name, point_name, parent_object, coords, photos_link]
+    # --- НОВАЯ ЛОГИКА ДЛЯ ССЫЛКИ ---
+    # Если ссылка есть, создаем формулу HYPERLINK, если нет - пишем "Нет фото"
+    if archive_link:
+        photos_cell_value = f'=HYPERLINK("{archive_link}"; "Открыть фото")'
+    else:
+        photos_cell_value = "Нет фото в архиве"
+    # --------------------------------
+
+    row_to_insert = [date_str, time_str, agent_name, point_name, parent_object, coords, photos_cell_value]
     
     try:
         worksheet.append_row(row_to_insert, value_input_option='USER_ENTERED')
         logging.info(f"Отчет id={report_id} успешно добавлен в Google Таблицу.")
     except Exception as e:
         logging.error(f"Не удалось добавить строку в Google Таблицу: {e}")
+
+# services/google_sheets.py - заменяем эту функцию
+
+def generate_period_report(sheet_name: str, start_date: date, end_date: date):
+    """Генерирует и записывает в Google Таблицу сводный отчет за период."""
+    worksheet = get_worksheet(sheet_name)
+    if not worksheet:
+        logging.error(f"Не удалось сгенерировать отчет: лист '{sheet_name}' не найден.")
+        return
+
+    stats = get_stats_for_period(start_date, end_date)
+
+    if not stats:
+        worksheet.clear()
+        worksheet.update_cell(1, 1, f"Нет данных за период с {start_date.strftime('%d.%m')} по {end_date.strftime('%d.%m')}.")
+        return
+
+    header = ["Агент", "Всего посещений", "Всего часов отработано", "Среднее время на точку (мин)"]
+    rows_to_insert = [header]
+    
+    for agent in stats:
+        total_hours = agent.get('duration_seconds', 0) / 3600
+        total_visits = agent.get('visits', 0)
+        
+        work_hours_str = f"{total_hours:.2f}"
+        avg_time_per_point_str = "-"
+
+        if total_visits > 0 and total_hours > 0:
+            avg_minutes = (agent.get('duration_seconds', 0) / 60) / total_visits
+            avg_time_per_point_str = f"{avg_minutes:.1f}"
+
+        row = [agent['name'], total_visits, work_hours_str, avg_time_per_point_str]
+        rows_to_insert.append(row)
+
+    try:
+        worksheet.clear()
+        worksheet.update(rows_to_insert, value_input_option='USER_ENTERED')
+        worksheet.format(f"A1:D1", {'textFormat': {'bold': True}})
+        logging.info(f"Отчет '{sheet_name}' успешно сгенерирован.")
+    except Exception as e:
+        logging.error(f"Не удалось обновить лист '{sheet_name}': {e}")
