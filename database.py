@@ -245,11 +245,9 @@ def get_visited_points_today(user_id):
         return {row[0] for row in cursor.fetchall()}
     
 
-# --- Обновляем функцию для статистики, чтобы она могла работать и для супервайзера ---
-
 def get_daily_stats(supervisor_id=None):
     """
-    Собирает статистику. Если передан supervisor_id, то только по его команде.
+    Собирает расширенную статистику, включая время работы.
     """
     with sqlite3.connect(DATABASE_NAME) as conn:
         cursor = conn.cursor()
@@ -258,43 +256,52 @@ def get_daily_stats(supervisor_id=None):
 
         if not current_day_key or current_day_key == 'ВС': return 0, 0, []
 
-        # Базовые запросы
-        plan_query = "SELECT u.full_name, COUNT(s.point_id) FROM schedules s JOIN users u ON s.user_id = u.user_id WHERE s.day_of_week = ? AND u.role = 'agent'"
-        fact_query = "SELECT COUNT(report_id) FROM reports WHERE date(report_time, 'localtime') = date('now', 'localtime')"
-        agents_fact_query = "SELECT u.full_name, COUNT(r.report_id) FROM reports r JOIN users u ON r.user_id = u.user_id WHERE date(r.report_time, 'localtime') = date('now', 'localtime')"
-        
+        # Базовый запрос на получение плана
+        plan_query = "SELECT u.user_id, u.full_name, COUNT(s.point_id) FROM schedules s JOIN users u ON s.user_id = u.user_id WHERE s.day_of_week = ? AND u.role = 'agent'"
         params_plan = [current_day_key]
-        params_fact = []
-
         if supervisor_id:
-            # Если есть ID супервайзера, добавляем фильтр в запросы
             plan_query += " AND u.supervisor_id = ?"
-            fact_query += " AND user_id IN (SELECT user_id FROM users WHERE supervisor_id = ?)"
-            agents_fact_query += " AND u.supervisor_id = ?"
             params_plan.append(supervisor_id)
-            params_fact.append(supervisor_id)
-
-        plan_query += " GROUP BY u.full_name"
-        agents_fact_query += " GROUP BY u.full_name"
-
+        plan_query += " GROUP BY u.user_id, u.full_name"
+        
         cursor.execute(plan_query, params_plan)
         plan_data = cursor.fetchall()
-        total_plan = sum(count for _, count in plan_data)
+        total_plan = sum(count for _, _, count in plan_data)
+        
+        # Запрос на получение факта по точкам
+        fact_query = "SELECT u.user_id, u.full_name, COUNT(r.report_id) FROM reports r JOIN users u ON r.user_id = u.user_id WHERE date(r.report_time, 'localtime') = date('now', 'localtime')"
+        params_fact = []
+        if supervisor_id:
+            fact_query += " AND u.supervisor_id = ?"
+            params_fact.append(supervisor_id)
+        fact_query += " GROUP BY u.user_id, u.full_name"
         
         cursor.execute(fact_query, params_fact)
-        total_fact = cursor.fetchone()[0]
+        fact_data = {user_id: (name, count) for user_id, name, count in cursor.fetchall()}
+        total_fact = sum(count for _, count in fact_data.values())
 
-        agents_plan = {name: count for name, count in plan_data}
-        cursor.execute(agents_fact_query, params_fact)
-        agents_fact = {name: count for name, count in cursor.fetchall()}
-
-        laggards = []
-        for agent_name, plan_count in agents_plan.items():
-            fact_count = agents_fact.get(agent_name, 0)
-            if fact_count < plan_count:
-                laggards.append({'name': agent_name, 'plan': plan_count, 'fact': fact_count})
+        # Собираем итоговую статистику по каждому агенту
+        full_stats = []
+        for user_id, full_name, plan_count in plan_data:
+            _, fact_count = fact_data.get(user_id, (None, 0))
+            
+            # Получаем время работы
+            start_time, end_time = get_work_session_times(user_id)
+            
+            # Собираем все в один словарь
+            agent_stats = {
+                'name': full_name,
+                'plan': plan_count,
+                'fact': fact_count,
+                'start_time': start_time,
+                'end_time': end_time
+            }
+            full_stats.append(agent_stats)
+            
+        # Отдельно находим отстающих (у кого факт < план)
+        laggards = [agent for agent in full_stats if agent['fact'] < agent['plan']]
         
-        return total_plan, total_fact, laggards
+        return total_plan, total_fact, laggards, full_stats
     
 
 def get_report_details_for_gsheet(report_id):
@@ -317,4 +324,18 @@ def get_report_details_for_gsheet(report_id):
             JOIN trade_points tp ON r.point_id = tp.point_id
             WHERE r.report_id = ?
         """, (report_id,))
+        return cursor.fetchone()
+
+def get_work_session_times(user_id):
+    """
+    Находит время первого и последнего отчета агента за сегодня.
+    Возвращает (время_начала, время_окончания) или (None, None).
+    """
+    with sqlite3.connect(DATABASE_NAME) as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT MIN(report_time), MAX(report_time)
+            FROM reports
+            WHERE user_id = ? AND date(report_time, 'localtime') = date('now', 'localtime')
+        """, (user_id,))
         return cursor.fetchone()
