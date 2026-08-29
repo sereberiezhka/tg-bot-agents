@@ -1,18 +1,25 @@
 # config.py
+import os
+from dotenv import load_dotenv
 
-BOT_TOKEN = "8171756915:AAFiZFAEBx2yJxtiSkMlDjFbEPKTMXjZjSk"
+load_dotenv()  # подтягивает переменные из файла .env
+
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 # ID канала для архива фото (должен начинаться с -100)
-PHOTO_ARCHIVE_CHANNEL_ID = -1003129591507 # Замени на свой ID
+PHOTO_ARCHIVE_CHANNEL_ID = int(os.getenv("PHOTO_ARCHIVE_CHANNEL_ID", "-1003129591507"))
 
 # Название файла с ключами от Google API
-GOOGLE_CREDS_JSON = "miralko-bot-dfc195fd0788.json"
+GOOGLE_CREDS_JSON = os.getenv("GOOGLE_CREDS_JSON", "google_creds.json")
 
 # Название твоей Google Таблицы
-GOOGLE_SHEET_NAME = "Отчеты по агентам"
+GOOGLE_SHEET_NAME = os.getenv("GOOGLE_SHEET_NAME", "Отчеты по агентам")
 
-# ID администратора (Директора), который может загружать расписание
-DIRECTOR_ID = 1669140535
+# ID администратора (Директора)
+DIRECTOR_ID = int(os.getenv("DIRECTOR_ID", "1669140535"))
 
-# Ссылка на твою Google Таблицу для кнопки "Отчеты"
-GOOGLE_SHEET_URL = "https://docs.google.com/spreadsheets/d/1gAPQMTl7DjcJiLMVT8yxQNb-s5FmnF3m4mH-4aHDTWg/edit?hl=ru&gid=0#gid=0"
+# Ссылка на Google Таблицу
+GOOGLE_SHEET_URL = os.getenv("GOOGLE_SHEET_URL", "")
+
+if not BOT_TOKEN:
+    raise RuntimeError("BOT_TOKEN не найден. Проверь файл .env")
